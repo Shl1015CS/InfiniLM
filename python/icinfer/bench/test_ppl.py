@@ -11,25 +11,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-path", type=str, required=True)
     parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--endpoint", type=str, default="/chat/completions")
+    parser.add_argument("--endpoint", type=str, default="/completions")
     parser.add_argument("--chunk", type=int, default=512)
     args = parser.parse_args()
 
     API_URL = "http://localhost:" + str(args.port) + args.endpoint
     CHUNK_SIZE = args.chunk
-    
-    print("Loading dataset...")
-    local_file_paths = {
-        # "train": "/home/wanghaojie/vllm/huggingface/wikitext/wikitext_local_parquet/train.parquet",
-        # "validation": "/home/wanghaojie/vllm/huggingface/wikitext/wikitext_local_parquet/validation.parquet",
-        "test": "/home/wanghaojie/vllm/huggingface/wikitext/wikitext-2-raw-v1/test-00000-of-00001.parquet"
-    }
-    dataset = load_dataset("parquet", data_files=local_file_paths, split="test")
-    print("Dataset loaded.")
-    # dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="test")
+
+    dataset = load_dataset("wikitext", "wikitext-2-raw-v1", split="test")
 
     # Local tokenizer used for chunking
-    tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(args.model_path)
 
     total_neg_log_likelihood = 0.0
     total_tokens = 0
@@ -41,19 +33,16 @@ if __name__ == "__main__":
 
         # endcode, chunk and decode
         tokens = tokenizer.encode(text, add_special_tokens=False)
-        # 使用与jiuge_ppl.py相同的分割逻辑，只处理完整的chunk
-        for i in range(0, len(tokens) - CHUNK_SIZE + 1, CHUNK_SIZE):
-            chunk_tokens = tokens[i : i + CHUNK_SIZE]
+        for i in range(0, len(tokens), CHUNK_SIZE):
+            chunk_tokens = tokens[i : min(i + CHUNK_SIZE, len(tokens))]
             chunk_text = tokenizer.decode(chunk_tokens)
 
             resp = requests.post(
                 API_URL,
                 headers={"Content-Type": "application/json"},
                 json={
-                    "messages": [
-                        {"role": "user", "content": chunk_text}
-                    ],
                     "model": "",
+                    "prompt": chunk_text,
                     "max_tokens": 0,
                     "temperature": 1.0,
                     "echo": True,

@@ -1,4 +1,6 @@
 #include "../cache.hpp"
+#include <cassert>
+#include "/home/zhushuang/paged/InfiniCore-Infer/src/models/jiuge/jiuge_impl.hpp"
 
 __C struct KVCache *createKVCache(
     size_t nlayers,
@@ -23,6 +25,31 @@ __C struct KVCache *createKVCache(
         for (unsigned int layer = 0; layer < nlayers; layer++) {
             kcache.push_back(std::move(Tensor::buffer(dtype, shape_k)));
             vcache.push_back(std::move(Tensor::buffer(dtype, shape_v)));
+        }
+        cache->k.push_back(kcache);
+        cache->v.push_back(vcache);
+    }
+
+    return cache;
+}
+
+__C struct KVCache *createPagedKVCache(const JiugeModel *model, uint32_t max_kvcache_tokens) {
+    KVCache *cache = new KVCache();
+    auto ndev = model->dev_resources.size();
+    auto nkvh = model->meta.nkvh / ndev;
+    // auto max_len = model->meta.dctx;
+    auto dh = model->meta.dh;
+    auto kvcache_block_size = model->meta.kvcache_block_size;
+    auto max_num_blocks = max_kvcache_tokens / kvcache_block_size;
+    assert(kvcache_block_size > 0);
+    auto shape = std::vector<size_t>{max_num_blocks, nkvh, kvcache_block_size, dh};
+    for (unsigned int idev = 0; idev < ndev; idev++) {
+        RUN_INFINI(infinirtSetDevice(model->device, model->dev_ids[idev]));
+        auto kcache = std::vector<std::shared_ptr<Tensor>>();
+        auto vcache = std::vector<std::shared_ptr<Tensor>>();
+        for (unsigned int layer = 0; layer < model->meta.nlayer; layer++) {
+            kcache.push_back(std::move(Tensor::buffer(model->meta.dt_logits, shape)));
+            vcache.push_back(std::move(Tensor::buffer(model->meta.dt_logits, shape)));
         }
         cache->k.push_back(kcache);
         cache->v.push_back(vcache);
@@ -72,6 +99,18 @@ __C void dropKVCache(KVCache *kv_cache) {
     for (unsigned int idev = 0; idev < ndev; idev++) {
         RUN_INFINI(infinirtSetDevice(device, kv_cache->k[idev][0]->deviceId()));
         for (unsigned int layer = 0; layer < nlayers; layer++) {
+            kv_cache->k[idev][layer].reset();
+            kv_cache->v[idev][layer].reset();
+        }
+    }
+    delete kv_cache;
+}
+
+__C void dropPagedKVCache(JiugeModel const *model, KVCache *kv_cache) {
+    auto ndev = model->dev_resources.size();
+    for (unsigned int idev = 0; idev < ndev; idev++) {
+        RUN_INFINI(infinirtSetDevice(model->device, model->dev_ids[idev]));
+        for (unsigned int layer = 0; layer < model->meta.nlayer; layer++) {
             kv_cache->k[idev][layer].reset();
             kv_cache->v[idev][layer].reset();
         }
