@@ -1,6 +1,7 @@
 #pragma once
 
 #include "llama_config.hpp"
+#include "llama_hooks.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/tensor.hpp"
@@ -33,12 +34,18 @@ public:
      * @brief Forward pass: compute MLP output
      *
      * @param hidden_states Input tensor of shape [batch, seq_len, hidden_size]
+     * @param hook_registry Optional hook registry for capturing intermediate values
+     * @param hook_prefix Prefix for hook names (e.g., "layer0_mlp")
+     * @param layer_idx Layer index for hooks
      * @return Output tensor of shape [batch, seq_len, hidden_size]
      *
      * Note: This is a placeholder forward method. The actual implementation
      * will be added when integrating with the inference engine.
      */
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
+                                const HookRegistry *hook_registry = nullptr,
+                                const std::string &hook_prefix = "",
+                                int layer_idx = -1) const;
 
     // Module information
     size_t hidden_size() const { return hidden_size_; }

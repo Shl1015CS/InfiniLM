@@ -15,6 +15,24 @@ using infinicore::Device;
 namespace infinilm::models::llama {
 
 inline void bind_llama(py::module &m) {
+    // Bind HookRegistry
+    py::class_<HookRegistry, std::shared_ptr<HookRegistry>>(m, "HookRegistry")
+        .def(py::init<>())
+        .def("register_hook", [](HookRegistry &self, const std::string &name, py::object callback) {
+            // Convert Python callable to C++ function
+            self.register_hook(name, [callback](const std::string &hook_name, const infinicore::Tensor &tensor, int layer_idx) {
+                try {
+                    // Call Python callback with hook name, tensor, and layer index
+                    callback(hook_name, tensor, layer_idx);
+                } catch (const py::error_already_set &e) {
+                    // Re-raise Python exception
+                    throw;
+                }
+            });
+        }, py::arg("name"), py::arg("callback"))
+        .def("clear", &HookRegistry::clear)
+        .def("has_hooks", &HookRegistry::has_hooks);
+
     // Bind LlamaConfig
     py::class_<LlamaConfig> config(m, "LlamaConfig");
     config
@@ -249,7 +267,7 @@ inline void bind_llama(py::module &m) {
             model.load_state_dict(cpp_state_dict);
         }, py::arg("state_dict"), py::arg("device"))
         .def("config", &LlamaForCausalLM::config, py::return_value_policy::reference_internal)
-        .def("forward", [convert_to_tensor](const LlamaForCausalLM &model, py::object input_ids, py::object position_ids, py::object kv_caches = py::none()) {
+        .def("forward", [convert_to_tensor](const LlamaForCausalLM &model, py::object input_ids, py::object position_ids, py::object kv_caches = py::none(), py::object hook_registry = py::none()) {
             // Helper to extract C++ tensor from Python object
             auto get_tensor = [convert_to_tensor](py::object obj) -> infinicore::Tensor {
                 // If it's already a Python InfiniCore tensor wrapper, extract underlying
@@ -290,8 +308,34 @@ inline void bind_llama(py::module &m) {
                 kv_caches_ptr = nullptr;
             }
 
-            return model.forward(infini_input_ids, infini_position_ids, kv_caches_ptr);
-        }, py::arg("input_ids"), py::arg("position_ids"), py::arg("kv_caches") = py::none());
+            // Handle hook_registry if provided
+            const HookRegistry *hook_registry_ptr = nullptr;
+            if (!hook_registry.is_none()) {
+                try {
+                    // Try to cast as shared_ptr first
+                    auto hook_registry_shared = hook_registry.cast<std::shared_ptr<HookRegistry>>();
+                    hook_registry_ptr = hook_registry_shared.get();
+                } catch (const py::cast_error &) {
+                    try {
+                        // Try direct cast
+                        hook_registry_ptr = hook_registry.cast<const HookRegistry *>();
+                    } catch (const py::cast_error &) {
+                        // Try to get underlying if it's a Python wrapper
+                        if (py::hasattr(hook_registry, "_underlying")) {
+                            auto underlying = hook_registry.attr("_underlying");
+                            try {
+                                auto hook_registry_shared = underlying.cast<std::shared_ptr<HookRegistry>>();
+                                hook_registry_ptr = hook_registry_shared.get();
+                            } catch (const py::cast_error &) {
+                                hook_registry_ptr = underlying.cast<const HookRegistry *>();
+                            }
+                        }
+                    }
+                }
+            }
+
+            return model.forward(infini_input_ids, infini_position_ids, kv_caches_ptr, hook_registry_ptr);
+        }, py::arg("input_ids"), py::arg("position_ids"), py::arg("kv_caches") = py::none(), py::arg("hook_registry") = py::none());
 }
 
 } // namespace infinilm::models::llama

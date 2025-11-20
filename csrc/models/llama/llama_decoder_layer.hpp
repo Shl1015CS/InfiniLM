@@ -3,6 +3,7 @@
 #include "llama_config.hpp"
 #include "llama_attention.hpp"
 #include "llama_mlp.hpp"
+#include "llama_hooks.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/tensor.hpp"
@@ -37,6 +38,9 @@ public:
      * @param hidden_states Input tensor of shape [batch, seq_len, hidden_size]
      * @param position_ids Position IDs tensor of shape [batch, seq_len] or [seq_len]
      * @param kv_cache Optional KV cache for incremental decoding
+     * @param hook_registry Optional hook registry for capturing intermediate values
+     * @param hook_prefix Prefix for hook names (e.g., "layer0")
+     * @param layer_idx Layer index for hooks
      * @return Output tensor of shape [batch, seq_len, hidden_size]
      *
      * Note: This is a placeholder forward method. The actual implementation
@@ -44,7 +48,10 @@ public:
      */
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
                                 const infinicore::Tensor &position_ids,
-                                void *kv_cache = nullptr) const;
+                                void *kv_cache = nullptr,
+                                const HookRegistry *hook_registry = nullptr,
+                                const std::string &hook_prefix = "",
+                                int layer_idx = -1) const;
 
 protected:
     // Layer normalization

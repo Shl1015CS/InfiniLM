@@ -14,9 +14,11 @@
  * - LlamaDecoderLayer: Single transformer decoder layer
  * - LlamaModel: Core transformer model (without LM head)
  * - LlamaForCausalLM: Complete model with language modeling head
+ * - HookRegistry: Hook system for capturing intermediate values
  */
 
 #include "llama_config.hpp"
+#include "llama_hooks.hpp"
 #include "llama_attention.hpp"
 #include "llama_mlp.hpp"
 #include "llama_decoder_layer.hpp"

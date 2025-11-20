@@ -1,59 +1,71 @@
 #include "llama_decoder_layer.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/ops.hpp"
-#include <spdlog/spdlog.h>
 
 namespace infinilm::models::llama {
 
 LlamaDecoderLayer::LlamaDecoderLayer(const LlamaConfig &config, const infinicore::Device &device) {
-    spdlog::info("LlamaDecoderLayer::LlamaDecoderLayer: START");
-
-    spdlog::info("LlamaDecoderLayer::LlamaDecoderLayer: About to initialize input_layernorm...");
     // Initialize layer normalization layers
     INFINICORE_NN_MODULE_INIT(input_layernorm, config.hidden_size, config.rms_norm_eps,
                               infinicore::DataType::F32, device);
-
-    spdlog::info("LlamaDecoderLayer::LlamaDecoderLayer: input_layernorm initialized, about to initialize post_attention_layernorm...");
     INFINICORE_NN_MODULE_INIT(post_attention_layernorm, config.hidden_size, config.rms_norm_eps,
                               infinicore::DataType::F32, device);
 
-    spdlog::info("LlamaDecoderLayer::LlamaDecoderLayer: post_attention_layernorm initialized, about to initialize self_attn...");
-
     // Initialize attention and MLP modules
     INFINICORE_NN_MODULE_INIT(self_attn, config, device);
-
-    spdlog::info("LlamaDecoderLayer::LlamaDecoderLayer: self_attn initialized, about to initialize mlp...");
     INFINICORE_NN_MODULE_INIT(mlp, config, device);
-
-    spdlog::info("LlamaDecoderLayer::LlamaDecoderLayer: mlp initialized, constructor complete");
 }
 
 infinicore::Tensor LlamaDecoderLayer::forward(const infinicore::Tensor &hidden_states,
                                                const infinicore::Tensor &position_ids,
-                                               void *kv_cache) const {
+                                               void *kv_cache,
+                                               const HookRegistry *hook_registry,
+                                               const std::string &hook_prefix,
+                                               int layer_idx) const {
     // Save residual for attention
     auto residual = hidden_states;
 
     // 1. Pre-attention layer normalization
     auto normed_states = input_layernorm_->forward(hidden_states);
+    if (hook_registry && hook_registry->has_hooks()) {
+        hook_registry->call_hook(hook_prefix + "_input_layernorm", normed_states, layer_idx);
+    }
 
     // 2. Self-attention with residual connection
-    auto attn_output = self_attn_->forward(normed_states, position_ids, kv_cache);
+    std::string attn_prefix = hook_prefix.empty() ? "attention" : hook_prefix + "_attention";
+    auto attn_output = self_attn_->forward(normed_states, position_ids, kv_cache, hook_registry, attn_prefix, layer_idx);
 
     // Add residual: hidden_states = hidden_states + attn_output
     auto output = infinicore::op::add(residual, attn_output);
+    if (hook_registry && hook_registry->has_hooks()) {
+        hook_registry->call_hook(hook_prefix + "_after_attention_residual", output, layer_idx);
+    }
 
     // Save residual for MLP
     residual = output;
 
     // 3. Post-attention layer normalization
+    if (hook_registry && hook_registry->has_hooks()) {
+        hook_registry->call_hook(hook_prefix + "_before_post_attention_layernorm", output, layer_idx);
+    }
     normed_states = post_attention_layernorm_->forward(output);
+    if (hook_registry && hook_registry->has_hooks()) {
+        hook_registry->call_hook(hook_prefix + "_post_attention_layernorm", normed_states, layer_idx);
+    }
 
     // 4. MLP with residual connection
-    auto mlp_output = mlp_->forward(normed_states);
+    std::string mlp_prefix = hook_prefix.empty() ? "mlp" : hook_prefix + "_mlp";
+    auto mlp_output = mlp_->forward(normed_states, hook_registry, mlp_prefix, layer_idx);
+    if (hook_registry && hook_registry->has_hooks()) {
+        hook_registry->call_hook(hook_prefix + "_mlp", mlp_output, layer_idx);
+    }
 
     // Add residual: output = output + mlp_output
     output = infinicore::op::add(residual, mlp_output);
+    if (hook_registry && hook_registry->has_hooks()) {
+        hook_registry->call_hook(hook_prefix + "_after_mlp_residual", output, layer_idx);
+        hook_registry->call_hook(hook_prefix + "_output", output, layer_idx);
+    }
 
     return output;
 }

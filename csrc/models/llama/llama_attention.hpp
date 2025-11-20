@@ -1,6 +1,7 @@
 #pragma once
 
 #include "llama_config.hpp"
+#include "llama_hooks.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/rope.hpp"
@@ -34,6 +35,9 @@ public:
      * @param hidden_states Input tensor of shape [batch, seq_len, hidden_size]
      * @param position_ids Position IDs tensor of shape [batch, seq_len] or [seq_len]
      * @param kv_cache Optional KV cache for incremental decoding
+     * @param hook_registry Optional hook registry for capturing intermediate values
+     * @param hook_prefix Prefix for hook names (e.g., "layer0_attention")
+     * @param layer_idx Layer index for hooks (-1 if not applicable)
      * @return Output tensor of shape [batch, seq_len, hidden_size]
      *
      * Note: This is a placeholder forward method. The actual implementation
@@ -41,7 +45,18 @@ public:
      */
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
                                 const infinicore::Tensor &position_ids,
-                                void *kv_cache = nullptr) const;
+                                void *kv_cache = nullptr,
+                                const HookRegistry *hook_registry = nullptr,
+                                const std::string &hook_prefix = "",
+                                int layer_idx = -1) const;
+
+    /**
+     * @brief Minimal helper to run only the Q projection.
+     *
+     * This is primarily intended for reproducing low-level runtime issues
+     * (e.g., allocator failures) without executing the full attention block.
+     */
+    infinicore::Tensor project_q(const infinicore::Tensor &hidden_states) const;
 
     // Module information
     size_t num_heads() const { return num_attention_heads_; }
